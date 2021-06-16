@@ -413,20 +413,18 @@ def make_call_from_account_instruction(accounts, step_count):
 
 
 def simulate_transaction(acc, client, accounts, step_count, call_data = None):
-    tx_count = 100
-    init_steps = 0
-
+    continue_count = 45
     while True:
-        logger.debug(tx_count)
+        logger.debug(continue_count)
         blockhash = Blockhash(client.get_recent_blockhash(Confirmed)["result"]["value"]["blockhash"])
         trx = Transaction(recent_blockhash = blockhash)
         continue_accounts = accounts
         if call_data:
-            trx.add(make_partial_call_instruction(accounts, init_steps, call_data))
+            trx.add(make_partial_call_instruction(accounts, 0, call_data))
         else:
-            trx.add(make_call_from_account_instruction(accounts, init_steps))
+            trx.add(make_call_from_account_instruction(accounts, 0))
             continue_accounts = accounts[1:]
-        for _ in range(tx_count):
+        for _ in range(continue_count):
             trx.add(make_continue_instruction(continue_accounts, step_count))
         trx.sign(acc)
 
@@ -434,7 +432,12 @@ def simulate_transaction(acc, client, accounts, step_count, call_data = None):
             trx.serialize()
         except Exception as err:
             if str(err).startswith("transaction too large:"):
-                tx_count = int(tx_count * 90 / 100)
+                if continue_count == 0: 
+                    if call_data:
+                        return "use call from account"
+                    else:
+                        raise
+                continue_count = int(continue_count * 90 / 100)
                 continue
             raise
 
@@ -444,15 +447,19 @@ def simulate_transaction(acc, client, accounts, step_count, call_data = None):
             instruction_error = response["result"]["value"]["err"]["InstructionError"]
             if isinstance(instruction_error[1], str) and instruction_error[1] == "ProgramFailedToComplete":
                 step_count = int(step_count * 90 / 100)
+                if step_count == 0:
+                    return "try execute step by step"
             elif isinstance(instruction_error[1], dict) and "Custom" in instruction_error[1]:
-                tx_count = instruction_error[0] - 1
+                if continue_count == 0:
+                    return "try execute step by step"
+                continue_count = instruction_error[0] - 1
             else:
                 logger.debug("Result:\n%s"%json.dumps(response, indent=3))
         else:
-            logger.debug("Result:\n%s"%json.dumps(response, indent=3))
+            # logger.debug("Result:\n%s"%json.dumps(response, indent=3))
             break
 
-    if tx_count == 1:
+    if continue_count == 1:
         blockhash = Blockhash(client.get_recent_blockhash(Confirmed)["result"]["value"]["blockhash"])
         trx = Transaction(recent_blockhash = blockhash)
         continue_accounts = accounts
@@ -465,12 +472,12 @@ def simulate_transaction(acc, client, accounts, step_count, call_data = None):
         response = client.simulate_transaction(trx, commitment=Confirmed)
 
         if response["result"]["value"]["err"] is None:
-            tx_count = 0
+            continue_count = 0
         else:
             logger.debug("Result:\n%s"%json.dumps(response, indent=3))
 
-    logger.debug("tx_count = {}, step_count = {}", tx_count, step_count)
-    return (tx_count, step_count)
+    logger.debug("tx_count = {}, step_count = {}", continue_count, step_count)
+    return (continue_count, step_count)
 
 def create_account_list_by_emulate(acc, client, ethTrx, storage):
     sender_ether = bytes.fromhex(ethTrx.sender())
