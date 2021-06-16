@@ -455,6 +455,7 @@ def simulate_transaction(acc, client, accounts, step_count, call_data = None):
                 continue_count = instruction_error[0] - 1
             else:
                 logger.debug("Result:\n%s"%json.dumps(response, indent=3))
+                return "unspecified error"
         else:
             # logger.debug("Result:\n%s"%json.dumps(response, indent=3))
             break
