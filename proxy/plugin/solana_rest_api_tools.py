@@ -16,7 +16,7 @@ import rlp
 from .eth_proto import Trx
 from solana.rpc.types import TxOpts
 import re
-from solana.rpc.commitment import Confirmed
+from solana.rpc.commitment import Commitment, Confirmed
 from solana.rpc.api import SendTransactionError
 
 from construct import Bytes, Int8ul, Int32ul, Int64ul, Struct as cStruct
@@ -396,6 +396,82 @@ def sol_instr_12_cancel(acc, client, accounts):
     logger.debug("Cancel")
     result = send_measured_transaction(client, trx, acc)
 
+def make_partial_call_instruction(accounts, step_count, call_data):
+    return TransactionInstruction(program_id = evm_loader_id,
+                            data = bytearray.fromhex("09") + step_count.to_bytes(8, byteorder="little") + call_data,
+                            keys = accounts)
+
+def make_continue_instruction(accounts, step_count):
+    return TransactionInstruction(program_id = evm_loader_id,
+                            data = bytearray.fromhex("0A") + step_count.to_bytes(8, byteorder="little"),
+                            keys = accounts)
+
+def make_call_from_account_instruction(accounts, step_count):
+    return TransactionInstruction(program_id = evm_loader_id,
+                            data = bytearray.fromhex("0B") + step_count.to_bytes(8, byteorder="little"),
+                            keys = accounts)
+
+
+def simulate_transaction(acc, client, accounts, step_count, call_data = None):
+    tx_count = 100
+    init_steps = 0
+
+    while True:
+        logger.debug(tx_count)
+        blockhash = Blockhash(client.get_recent_blockhash(Confirmed)["result"]["value"]["blockhash"])
+        trx = Transaction(recent_blockhash = blockhash)
+        continue_accounts = accounts
+        if call_data:
+            trx.add(make_partial_call_instruction(accounts, init_steps, call_data))
+        else:
+            trx.add(make_call_from_account_instruction(accounts, init_steps))
+            continue_accounts = accounts[1:]
+        for _ in range(tx_count):
+            trx.add(make_continue_instruction(continue_accounts, step_count))
+        trx.sign(acc)
+
+        try:
+            trx.serialize()
+        except Exception as err:
+            if str(err).startswith("transaction too large:"):
+                tx_count = int(tx_count * 90 / 100)
+                continue
+            raise
+
+        response = client.simulate_transaction(trx, commitment=Confirmed)
+
+        if response["result"]["value"]["err"]:
+            instruction_error = response["result"]["value"]["err"]["InstructionError"]
+            if isinstance(instruction_error[1], str) and instruction_error[1] == "ProgramFailedToComplete":
+                step_count = int(step_count * 90 / 100)
+            elif isinstance(instruction_error[1], dict) and "Custom" in instruction_error[1]:
+                tx_count = instruction_error[0] - 1
+            else:
+                logger.debug("Result:\n%s"%json.dumps(response, indent=3))
+        else:
+            logger.debug("Result:\n%s"%json.dumps(response, indent=3))
+            break
+
+    if tx_count == 1:
+        blockhash = Blockhash(client.get_recent_blockhash(Confirmed)["result"]["value"]["blockhash"])
+        trx = Transaction(recent_blockhash = blockhash)
+        continue_accounts = accounts
+        if call_data:
+            trx.add(make_partial_call_instruction(accounts, step_count, call_data))
+        else:
+            trx.add(make_call_from_account_instruction(accounts, step_count))
+        trx.sign(acc)
+
+        response = client.simulate_transaction(trx, commitment=Confirmed)
+
+        if response["result"]["value"]["err"] is None:
+            tx_count = 0
+        else:
+            logger.debug("Result:\n%s"%json.dumps(response, indent=3))
+
+    logger.debug("tx_count = {}, step_count = {}", tx_count, step_count)
+    return (tx_count, step_count)
+
 def create_account_list_by_emulate(acc, client, ethTrx, storage):
     sender_ether = bytes.fromhex(ethTrx.sender())
     add_keys_05 = []
@@ -453,6 +529,9 @@ def call_signed(acc, client, ethTrx, storage, steps):
         data=bytearray.fromhex("09") + (0).to_bytes(8, byteorder='little') + sender_ether + ethTrx.signature() + ethTrx.unsigned_msg(),
         keys=accounts
         ))
+
+
+    simulate_transaction(acc, client, accounts, steps, sender_ether + ethTrx.signature() + ethTrx.unsigned_msg())
 
     try:
         logger.debug("Partial call")
@@ -613,6 +692,11 @@ def deploy_contract(acc, client, ethTrx, storage, steps):
                 AccountMeta(pubkey=evm_loader_id, is_signer=False, is_writable=False),
                 AccountMeta(pubkey=PublicKey(sysvarclock), is_signer=False, is_writable=False),
                 ]
+
+
+    simulate_transaction(acc, client, accounts, steps)
+
+
     # ExecuteTrxFromAccountDataIterative
     logger.debug("ExecuteTrxFromAccountDataIterative:")
     trx = Transaction()
