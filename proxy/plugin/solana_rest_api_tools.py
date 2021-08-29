@@ -40,10 +40,8 @@ LOCAL_CLUSTER = os.environ.get("LOCAL_CLUSTER")
 #evm_loader_id = "EfyDoGDRPy7wrLfSLyXrbhiAG6NmufMk1ytap13gLy1"
 location_bin = ".deploy_contract.bin"
 
-sysvarclock = "SysvarC1ock11111111111111111111111111111111"
 sysinstruct = "Sysvar1nstructions1111111111111111111111111"
 keccakprog = "KeccakSecp256k11111111111111111111111111111"
-rentid = "SysvarRent111111111111111111111111111111111"
 incinerator = "1nc1nerator11111111111111111111111111111111"
 system = "11111111111111111111111111111111"
 
@@ -81,7 +79,6 @@ obligatory_accounts = [
     AccountMeta(pubkey=evm_loader_id, is_signer=False, is_writable=False),
     AccountMeta(pubkey=ETH_TOKEN_MINT_ID, is_signer=False, is_writable=False),
     AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-    AccountMeta(pubkey=sysvarclock, is_signer=False, is_writable=False),
 ]
 
 
@@ -788,7 +785,6 @@ def createEtherAccountTrx(client, ether, evm_loader_id, signer, code_acc=None):
                 AccountMeta(pubkey=ETH_TOKEN_MINT_ID, is_signer=False, is_writable=False),
                 AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
                 AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-                AccountMeta(pubkey=rentid, is_signer=False, is_writable=False),
             ]))
     else:
         trx.add(TransactionInstruction(
@@ -803,7 +799,6 @@ def createEtherAccountTrx(client, ether, evm_loader_id, signer, code_acc=None):
                 AccountMeta(pubkey=ETH_TOKEN_MINT_ID, is_signer=False, is_writable=False),
                 AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
                 AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-                AccountMeta(pubkey=rentid, is_signer=False, is_writable=False),
             ]))
     return (trx, sol)
 
