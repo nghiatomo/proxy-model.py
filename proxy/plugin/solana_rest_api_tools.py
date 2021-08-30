@@ -766,7 +766,7 @@ def deploy_contract(acc, client, ethTrx, storage, holder, steps):
     if client.get_balance(code_sol, commitment=Confirmed)['result']['value'] == 0:
         msg_size = len(ethTrx.signature() + len(ethTrx.unsigned_msg()).to_bytes(8, byteorder="little") + ethTrx.unsigned_msg())
         valids_size = (msg_size // 8) + 1
-        code_account_size = CODE_INFO_LAYOUT.sizeof() + msg_size + valids_size + 2048
+        code_account_size = CODE_INFO_LAYOUT.sizeof() + msg_size + valids_size + 2048000
         code_account_balance = client.get_minimum_balance_for_rent_exemption(code_account_size)["result"]
         trx.add(createAccountWithSeedTrx(acc.public_key(), acc.public_key(), code_seed, code_account_balance, code_account_size, PublicKey(evm_loader_id)))
     if client.get_balance(contract_sol, commitment=Confirmed)['result']['value'] == 0:
