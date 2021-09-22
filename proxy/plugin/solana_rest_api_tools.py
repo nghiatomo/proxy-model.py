@@ -1022,8 +1022,6 @@ def deploy_contract(signer, client, ethTrx, perm_accs, steps):
     logger.debug("Legacy contract address solana: %s %s", contract_sol, contract_nonce)
     logger.debug("Legacy code address solana: %s %s", code_sol, code_nonce)
 
-    write_trx_to_holder_account(signer, client, perm_accs.holder, ethTrx)
-
     # Create contract account & execute deploy transaction
     logger.debug("    # Create contract account & execute deploy transaction")
     trx = Transaction()
@@ -1041,6 +1039,13 @@ def deploy_contract(signer, client, ethTrx, perm_accs, steps):
                 program_id=TOKEN_PROGRAM_ID,
             )))
             logger.debug("Token transfer to %s as ethereum 0x%s amount %s", caller_token, ethTrx.sender(), str(NEW_USER_AIRDROP_AMOUNT))
+    else:
+        data = base64.b64decode(sender_sol_info['result']['value']['data'][0])
+        acc_info = AccountInfo.frombytes(data)
+        if acc_info.trx_count != ethTrx.nonce:
+            raise Exception("Invalid nonce {}. Expected {} {}".format(ethTrx.nonce, acc_info.trx_count))
+
+    write_trx_to_holder_account(signer, client, perm_accs.holder, ethTrx)
 
     if client.get_balance(code_sol, commitment=Confirmed)['result']['value'] == 0:
         msg_size = len(ethTrx.signature() + len(ethTrx.unsigned_msg()).to_bytes(8, byteorder="little") + ethTrx.unsigned_msg())
