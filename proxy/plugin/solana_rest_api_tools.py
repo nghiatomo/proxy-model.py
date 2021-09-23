@@ -1041,9 +1041,9 @@ def deploy_contract(signer, client, ethTrx, perm_accs, steps):
             logger.debug("Token transfer to %s as ethereum 0x%s amount %s", caller_token, ethTrx.sender(), str(NEW_USER_AIRDROP_AMOUNT))
     else:
         data = base64.b64decode(sender_sol_info['result']['value']['data'][0])
-        acc_info = AccountInfo.frombytes(data)
-        if acc_info.trx_count != ethTrx.nonce:
-            raise Exception("Invalid nonce {}. Expected {} {}".format(ethTrx.nonce, acc_info.trx_count))
+        acc_nonce = int.from_bytes(AccountInfo.frombytes(data).trx_count, "little")
+        if acc_nonce != ethTrx.nonce:
+            raise Exception("Invalid nonce {}. Expected {}".format(ethTrx.nonce, acc_nonce))
 
     write_trx_to_holder_account(signer, client, perm_accs.holder, ethTrx)
 
