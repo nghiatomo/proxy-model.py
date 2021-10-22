@@ -229,6 +229,7 @@ class CancelTest(unittest.TestCase):
         return storage
 
 
+    @unittest.skip("Due issue #242")
     def test_canceled(self):
         print("\ntest_canceled")
         trx_receipt = proxy.eth.wait_for_transaction_receipt(self.tx_hash)
