@@ -58,7 +58,7 @@ solana config set -u $SOLANA_URL
 
 solana config get
 
-for i in {1..10}; do
+for i in {1..20}; do
     if solana cluster-version; then break; fi
     sleep 2
 done

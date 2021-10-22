@@ -473,8 +473,9 @@ class Indexer:
 
 
     def add_hunged_storage(self, trx, storage):
-        if abs(trx['slot'] - self.current_slot) > 16:
-            self.blocked_storages.add(storage)
+        if trx['slot']+16 < self.current_slot:
+            #self.blocked_storages.add(storage)
+            pass
 
 
 def run_indexer():
