@@ -2,6 +2,7 @@ import base58
 import base64
 import json
 import logging
+import math
 import os
 import random
 import re
@@ -635,10 +636,14 @@ class TransactionSender:
                     raise
 
         self.perm_accs = PermanentAccounts(self.client, self.signer)
+
         try:
             if call_iterative:
                 try:
-                    return self.call_signed_iterative()
+                    if USE_COMBINED_START_CONTINUE:
+                        return self.call_signed_iterative_combined()
+                    else:
+                        return self.call_signed_iterative()
                 except Exception as err:
                     logger.debug(str(err))
                     if str(err).startswith("transaction too large:"):
@@ -648,7 +653,10 @@ class TransactionSender:
                         raise
 
             if call_from_holder:
-                return self.call_signed_with_holder_acc()
+                    if USE_COMBINED_START_CONTINUE:
+                        return self.call_signed_with_holder_combined()
+                    else:
+                        return self.call_signed_with_holder_acc()
         finally:
             del self.perm_accs
 
@@ -808,6 +816,8 @@ class TransactionSender:
 
         self.msg = sender_ether + self.eth_trx.signature() + self.eth_trx.unsigned_msg()
 
+        self.steps_emulated = output_json["steps_executed"]
+
 
     def send_measured_transaction(self, trx, reason):
         result = send_transaction(self.client, trx, self.signer, eth_trx=self.eth_trx, reason=reason)
@@ -851,12 +861,22 @@ class TransactionSender:
         return self.call_continue()
 
 
-    def call_signed_with_holder_acc(self):
-        self.write_trx_to_holder_account()
+    def call_signed_iterative_combined(self):
         if len(self.create_acc_trx.instructions):
             precall_txs = Transaction()
             precall_txs.add(self.create_acc_trx)
-            self.send_measured_transaction(precall_txs, 'create_accounts_for_deploy')
+            self.send_measured_transaction(precall_txs, 'CreateAccountsForTrx')
+
+        return self.call_continue_combined()
+
+
+    def call_signed_with_holder_acc(self):
+        self.write_trx_to_holder_account()
+
+        if len(self.create_acc_trx.instructions):
+            precall_txs = Transaction()
+            precall_txs.add(self.create_acc_trx)
+            self.send_measured_transaction(precall_txs, 'CreateAccountsForTrx')
 
         precall_txs = Transaction()
         precall_txs.add(self.make_call_from_account_instruction())
@@ -866,6 +886,17 @@ class TransactionSender:
         self.send_measured_transaction(precall_txs, 'ExecuteTrxFromAccountDataIterativeV02')
 
         return self.call_continue()
+
+
+    def call_signed_with_holder_combined(self):
+        self.write_trx_to_holder_account()
+
+        if len(self.create_acc_trx.instructions):
+            precall_txs = Transaction()
+            precall_txs.add(self.create_acc_trx)
+            self.send_measured_transaction(precall_txs, 'CreateAccountsForTrx')
+
+        return self.call_continue_with_holder_combined()
 
 
     def write_trx_to_holder_account(self):
@@ -894,6 +925,104 @@ class TransactionSender:
             result = self.client.get_confirmed_transaction(rcpt)
             update_transaction_cost(result, self.eth_trx, reason='WriteHolder')
             logger.debug("confirmed: %s", rcpt)
+
+
+    def call_continue_combined(self):
+        return_result = None
+        try:
+            return_result = self.call_continue_bucked_combined()
+        except Exception as err:
+            logger.debug("call_continue_bucked_combined exception:")
+            logger.debug(str(err))
+
+        if return_result is not None:
+            return return_result
+
+        return self.call_continue()
+
+
+    def call_continue_with_holder_combined(self):
+        return_result = None
+        try:
+            return_result = self.call_continue_bucked_combined_from_holder()
+        except Exception as err:
+            logger.debug("call_continue_bucked_combined_from_holder exception:")
+            logger.debug(str(err))
+
+        if return_result is not None:
+            return return_result
+
+        return self.call_continue()
+
+
+    def call_continue_bucked_combined(self):
+        logger.debug("Send bucked combined:")
+        steps = self.steps
+        result_list = []
+        try:
+            for index in range(math.ceil(self.steps_emulated/steps) + 2): # plus one for initialization and for decreasing steps
+                trx = Transaction()
+                trx.add(TransactionInstruction(
+                    program_id=keccakprog,
+                    data=make_keccak_instruction_data(len(trx.instructions)+1, len(self.eth_trx.unsigned_msg()), data_start=13),
+                    keys=[
+                        AccountMeta(pubkey=keccakprog, is_signer=False, is_writable=False),
+                    ]))
+                trx.add(self.make_partial_call_or_continue_instruction(steps))
+                result = self.client.send_transaction(
+                    trx,
+                    self.signer,
+                    opts=TxOpts(skip_confirmation=True, preflight_commitment=Confirmed)
+                )["result"]
+                result_list.append(result)
+                steps -= 1
+        except Exception as err:
+            logger.debug(str(err))
+            if str(err).startswith("Transaction simulation failed: Error processing Instruction 0: custom program error: 0x1"):
+                pass
+            elif check_if_program_exceeded_instructions(err.result):
+                steps = int(steps * 90 / 100)
+            else:
+                raise
+
+        return self.collect_bucked_results(result_list, 'PartialCallOrContinueFromRawEthereumTX')
+
+
+    def call_continue_bucked_combined_from_holder(self):
+        logger.debug("Send bucked from holder:")
+        steps = self.steps
+        result_list = []
+        try:
+            for index in range(math.ceil(self.steps_emulated/steps) + 1): # plus one for initialization
+                trx = Transaction()
+                trx.add(self.make_partial_call_or_continue_from_account_data(index))
+                result = self.client.send_transaction(
+                    trx,
+                    self.signer,
+                    opts=TxOpts(skip_confirmation=True, preflight_commitment=Confirmed)
+                )["result"]
+                result_list.append(result)
+        except Exception as err:
+            if str(err).startswith("Transaction simulation failed: Error processing Instruction 0: custom program error: 0x1"):
+                pass
+            elif check_if_program_exceeded_instructions(err.result):
+                steps = int(steps * 90 / 100)
+            else:
+                raise
+
+        return self.collect_bucked_results(result_list, 'ExecuteTrxFromAccountDataIterativeOrContinue')
+
+
+    def collect_bucked_results(self, result_list, reason):
+        logger.debug("Collect bucked results:")
+        for trx in result_list:
+            confirm_transaction(self.client, trx)
+            result = self.client.get_confirmed_transaction(trx)
+            update_transaction_cost(result, self.eth_trx, reason=reason)
+            get_measurements(result)
+            (founded, signature) = self.check_if_continue_returned(result)
+            if founded:
+                return signature
 
 
     def call_continue(self):
@@ -1016,6 +1145,52 @@ class TransactionSender:
 
                 AccountMeta(pubkey=sysinstruct, is_signer=False, is_writable=False),
             ] + obligatory_accounts
+        )
+
+
+    def make_partial_call_or_continue_instruction(self, step_count = 0):
+        data = bytearray.fromhex("0D") + self.collateral_pool_index_buf + step_count.to_bytes(8, byteorder="little") + self.msg
+        return TransactionInstruction(
+            program_id = evm_loader_id,
+            data = data,
+            keys = [
+                    AccountMeta(pubkey=self.perm_accs.storage, is_signer=False, is_writable=True),
+
+                    AccountMeta(pubkey=sysinstruct, is_signer=False, is_writable=False),
+                    AccountMeta(pubkey=self.operator, is_signer=True, is_writable=True),
+                    AccountMeta(pubkey=self.collateral_pool_address, is_signer=False, is_writable=True),
+                    AccountMeta(pubkey=self.operator_token, is_signer=False, is_writable=True),
+                    AccountMeta(pubkey=self.caller_token, is_signer=False, is_writable=True),
+                    AccountMeta(pubkey=system, is_signer=False, is_writable=False),
+
+                ] + self.eth_accounts + [
+
+                    AccountMeta(pubkey=sysinstruct, is_signer=False, is_writable=False),
+                ] + obligatory_accounts
+        )
+
+
+    def make_partial_call_or_continue_from_account_data(self, index=None):
+        data = bytearray.fromhex("0E") + self.collateral_pool_index_buf + self.steps.to_bytes(8, byteorder='little')
+        if index:
+            data = data + index.to_bytes(8, byteorder="little")
+        return TransactionInstruction(
+            program_id = evm_loader_id,
+            data = data,
+            keys = [
+                        AccountMeta(pubkey=self.perm_accs.holder, is_signer=False, is_writable=True),
+                        AccountMeta(pubkey=self.perm_accs.storage, is_signer=False, is_writable=True),
+
+                        AccountMeta(pubkey=self.operator, is_signer=True, is_writable=True),
+                        AccountMeta(pubkey=self.collateral_pool_address, is_signer=False, is_writable=True),
+                        AccountMeta(pubkey=self.operator_token, is_signer=False, is_writable=True),
+                        AccountMeta(pubkey=self.caller_token, is_signer=False, is_writable=True),
+                        AccountMeta(pubkey=system, is_signer=False, is_writable=False),
+
+                ] + self.eth_accounts + [
+
+                    AccountMeta(pubkey=sysinstruct, is_signer=False, is_writable=False),
+                ] + obligatory_accounts
         )
 
 
