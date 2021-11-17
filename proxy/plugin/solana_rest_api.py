@@ -192,6 +192,7 @@ class EthereumModel:
             "transactions": transactions,
             "logsBloom": '0x'+'0'*512,
             "gasLimit": '0x6691b7',
+            "miner": '0x'+'0'*40,
         }
         return ret
 
