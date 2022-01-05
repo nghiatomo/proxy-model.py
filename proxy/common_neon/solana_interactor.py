@@ -140,7 +140,7 @@ class SolanaInteractor:
     def send_transaction_unconfirmed(self, txn: Transaction):
         for _i in range(RETRY_ON_FAIL):
             # TODO: Cache recent blockhash
-            blockhash_resp = self.client.get_recent_blockhash() # commitment=Confirmed
+            blockhash_resp = self.client.get_recent_blockhash(commitment=Confirmed)
             if not blockhash_resp["result"]:
                 raise RuntimeError("failed to get recent blockhash")
             blockhash = blockhash_resp["result"]["value"]["blockhash"]
@@ -158,7 +158,7 @@ class SolanaInteractor:
         raise RuntimeError("Failed trying {} times to get Blockhash for transaction {}".format(RETRY_ON_FAIL, txn.__dict__))
 
     def send_multiple_transactions_unconfirmed(self, transactions: List[Transaction], skip_preflight: bool = True) -> List[str]:
-        blockhash_resp = self.client.get_recent_blockhash() # commitment=Confirmed
+        blockhash_resp = self.client.get_recent_blockhash(commitment=Confirmed)
         if not blockhash_resp["result"]:
             raise RuntimeError("failed to get recent blockhash")
 
