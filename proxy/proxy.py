@@ -28,13 +28,14 @@ from proxy.environment import SOLANA_URL, EVM_LOADER_ID
 
 logger = logging.getLogger(__name__)
 
-
+from proxy.rpcserver import startRpc
 class Proxy:
 
     def __init__(self, input_args: Optional[List[str]], **opts: Any) -> None:
         self.flags = Flags.initialize(input_args, **opts)
         self.acceptors: Optional[AcceptorPool] = None
         self.indexer: Optional[Process] = None
+        self.rpcserver: Optional[Process] = None
 
     def write_pid_file(self) -> None:
         if self.flags.pid_file is not None:
@@ -50,12 +51,17 @@ class Proxy:
                                args=(SOLANA_URL,
                                      EVM_LOADER_ID,))
         self.indexer.start()
+
+        self.rpcserver = Process(target=startRpc)
+        self.rpcserver.start()
+        
         self.acceptors = AcceptorPool(
             flags=self.flags,
             work_klass=HttpProtocolHandler
         )
         self.acceptors.setup()
         self.write_pid_file()
+
         return self
 
     def __exit__(
